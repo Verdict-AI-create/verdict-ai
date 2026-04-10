@@ -18,10 +18,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "interview_active" not in st.session_state:
     st.session_state.interview_active = False
-
-def start_interview():
-    st.session_state.messages = []
-    st.session_state.interview_active = True
+if "last_audio" not in st.session_state:        # <-- NEW LINE
+    st.session_state.last_audio = None          # <-- NEW LINE
     
     # THE NEW BRAIN: Strict Indian Corporate Mentor
     system_prompt = f"""
