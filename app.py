@@ -18,19 +18,24 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "interview_active" not in st.session_state:
     st.session_state.interview_active = False
-if "last_audio" not in st.session_state:        # <-- NEW LINE
-    st.session_state.last_audio = None          # <-- NEW LINE
+if "last_audio" not in st.session_state:
+    st.session_state.last_audio = None
+
+def start_interview():
+    st.session_state.messages = []
+    st.session_state.interview_active = True
+    st.session_state.last_audio = None # Reset audio state on new interview
     
     # THE NEW BRAIN: Strict Indian Corporate Mentor
     system_prompt = f"""
-    You are 'Verdict', a Senior Corporate HR Director in India. You are strict, highly demanding, but ultimately empathetic and want the candidate to succeed. 
-    You do NOT accept generic fluff or buzzwords. If a candidate gives a weak answer, firmly point out the flaw, explain WHY it's a bad answer in the Indian corporate context, and ask them to try again or move to a new question. 
+    You are 'Verdict', a strict, highly demanding, but ultimately empathetic corporate mentor in India. 
+    You do NOT accept generic fluff or buzzwords. If a candidate gives a weak answer, firmly point out the flaw, explain WHY it's a bad answer, and ask them to try again. 
     Tone: Professional, authoritative, mentor-like, no-nonsense. 
     Language: Strictly conduct the interview in {language}.
     Job Description context: {jd}
     Candidate Resume context: {resume}
     
-    Start by introducing yourself as Verdict, acknowledge their background briefly, and ask a highly specific opening question based on their resume.
+    Start the interview by ONLY saying "I'm Verdict." Acknowledge their background briefly, and ask a highly specific opening question based on their resume.
     """
     
     st.session_state.messages.append({"role": "system", "content": system_prompt})
@@ -68,25 +73,27 @@ if st.session_state.interview_active:
     # 2. Text Input (Fallback)
     user_text = st.chat_input("Or type your answer here...")
 
-        # Process Input (Audio or Text)
+    # Process Input (Audio or Text)
     input_text = None
     
     # Only process if there is audio AND it is not the exact same audio we just processed
     if audio_bytes is not None and audio_bytes != st.session_state.last_audio:
         st.session_state.last_audio = audio_bytes # Save it so we don't repeat it
         
-        # Convert speech to text
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1", 
-            file=("audio.wav", audio_bytes)
-        )
-        
+        with st.spinner("Transcribing audio..."):
+            # Convert speech to text
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=("audio.wav", audio_bytes)
+            )
+            
         # The Hallucination Filter
         if "MBC" in transcript.text or len(transcript.text) < 2:
             st.warning("Mic didn't catch that cleanly. Please try speaking again.")
         else:
             input_text = transcript.text
 
+    # Override with text if typed
     if user_text:
         input_text = user_text
 
@@ -137,3 +144,4 @@ if st.session_state.interview_active:
             
             with st.chat_message("assistant"):
                 st.write(scorecard)
+            st.rerun()
