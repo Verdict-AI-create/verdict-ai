@@ -1,79 +1,132 @@
 import streamlit as st
 from openai import OpenAI
 
-# 1. Page Configuration
-st.set_page_config(page_title="Verdict AI - Interview Prep", page_icon="⚖️")
+# --- PAGE SETUP ---
+st.set_page_config(page_title="Verdict AI", layout="wide")
 st.title("Verdict AI ⚖️")
-st.markdown("### The Universal Hostile HR Simulator")
+st.subheader("Executive Interview Simulator")
 
-# 2. Sidebar for User Inputs
-with st.sidebar:
-    st.header("Interview Setup")
-    api_key = st.text_input("OpenAI API Key", type="password", help="Your secret key from OpenAI")
-    st.markdown("---")
-    language = st.selectbox("Interview Language", ["English", "Hindi", "Hinglish"])
-    jd = st.text_area("Paste Job Description:", height=150)
-    resume = st.text_area("Paste Your Resume:", height=150)
-    start_interview = st.button("Begin Interview")
+# --- SIDEBAR SETUP ---
+st.sidebar.header("Interview Setup")
+api_key = st.sidebar.text_input("OpenAI API Key", type="password")
+language = st.sidebar.selectbox("Interview Language", ["English", "Hinglish", "Hindi"])
+jd = st.sidebar.text_area("Paste Job Description:")
+resume = st.sidebar.text_area("Paste Candidate Snippet (LinkedIn About or Current Role):")
 
-# 3. Memory & System Prompt Initialization
+# --- CORE LOGIC ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "interview_active" not in st.session_state:
+    st.session_state.interview_active = False
 
-if start_interview:
-    if not api_key or not jd or not resume:
-        st.error("Please provide an API Key, Job Description, and Resume to begin.")
+def start_interview():
+    st.session_state.messages = []
+    st.session_state.interview_active = True
+    
+    # THE NEW BRAIN: Strict Indian Corporate Mentor
+    system_prompt = f"""
+    You are 'Verdict', a Senior Corporate HR Director in India. You are strict, highly demanding, but ultimately empathetic and want the candidate to succeed. 
+    You do NOT accept generic fluff or buzzwords. If a candidate gives a weak answer, firmly point out the flaw, explain WHY it's a bad answer in the Indian corporate context, and ask them to try again or move to a new question. 
+    Tone: Professional, authoritative, mentor-like, no-nonsense. 
+    Language: Strictly conduct the interview in {language}.
+    Job Description context: {jd}
+    Candidate Resume context: {resume}
+    
+    Start by introducing yourself as Verdict, acknowledge their background briefly, and ask a highly specific opening question based on their resume.
+    """
+    
+    st.session_state.messages.append({"role": "system", "content": system_prompt})
+    
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=st.session_state.messages
+    )
+    
+    ai_reply = response.choices[0].message.content
+    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+
+if st.sidebar.button("Begin Interview"):
+    if api_key and jd and resume:
+        start_interview()
     else:
-        st.session_state.messages = [] 
-        
-        system_prompt = f"""You are "Verdict", a hardened, veteran Corporate HR Director. You are conducting a rigorous, professional interview based on the specific Job Description and Resume provided.
+        st.sidebar.error("Please provide the API Key, JD, and Resume Snippet.")
 
-        Language Requirement: You MUST conduct this entire interview, including all feedback and questions, in {language}. If Hinglish is selected, mix Hindi and English naturally as spoken in Indian corporate environments.
+# --- DISPLAY CHAT HISTORY ---
+for msg in st.session_state.messages:
+    if msg["role"] != "system":
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
 
-        Personality:
-        * The Universal HR Veteran: You don't care about niche jargon; you care about competency, logic, and handling pressure. You grill retail managers, sales reps, and software engineers with equal intensity.
-        * Professionally Sarcastic & Tough: You give a harsh reality check. You use sharp, corporate-appropriate sarcasm to highlight weak answers.
-        * The "Tough Love" Coach: You are strict. If they give a terrible answer, you tell them exactly why they would be rejected, and then demand they try again with more confidence and better structure.
+# --- AUDIO & TEXT INTERFACE ---
+if st.session_state.interview_active:
+    client = OpenAI(api_key=api_key)
+    
+    # 1. Audio Input (Walkie-Talkie Mode)
+    st.write("---")
+    st.write("**Speak your answer:**")
+    audio_bytes = st.audio_input("Record Answer")
+    
+    # 2. Text Input (Fallback)
+    user_text = st.chat_input("Or type your answer here...")
 
-        Rules of Engagement:
-        1. Base your questions on this Job Description: {jd}
-        2. Base your context on this Resume: {resume}
-        3. Start the interview by introducing yourself professionally, acknowledging their resume briefly, and asking the very first question.
-        4. Ask ONE question at a time.
-        5. Critique their response using the "Professional Critique -> Constructive Nudge -> Next Question" framework. Do not break character."""
-        
-        st.session_state.messages.append({"role": "system", "content": system_prompt})
-        
-        # Trigger the first message
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-4-turbo",
-            messages=st.session_state.messages
+    # Process Input (Audio or Text)
+    input_text = None
+    if audio_bytes is not None:
+        # Convert speech to text
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1", 
+            file=("audio.wav", audio_bytes)
         )
-        msg = response.choices[0].message.content
-        st.session_state.messages.append({"role": "assistant", "content": msg})
+        input_text = transcript.text
 
-# 4. Chat Interface
-for message in st.session_state.messages:
-    if message["role"] != "system":
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    if user_text:
+        input_text = user_text
 
-# 5. Handling User Answers
-if prompt := st.chat_input("Type your answer here..."):
-    if not api_key:
-        st.error("Please enter your OpenAI API Key in the sidebar.")
-    else:
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    if input_text:
+        # Display user message
         with st.chat_message("user"):
-            st.markdown(prompt)
+            st.write(input_text)
+        st.session_state.messages.append({"role": "user", "content": input_text})
 
-        client = OpenAI(api_key=api_key)
-        with st.chat_message("assistant"):
-            stream = client.chat.completions.create(
-                model="gpt-4-turbo",
-                messages=st.session_state.messages,
-                stream=True
+        # Get AI Response
+        with st.spinner("Verdict is thinking..."):
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=st.session_state.messages
             )
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+            ai_reply = response.choices[0].message.content
+            st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+            
+            # Display AI text
+            with st.chat_message("assistant"):
+                st.write(ai_reply)
+            
+            # Generate AI Voice
+            audio_response = client.audio.speech.create(
+                model="tts-1",
+                voice="onyx", # Deep, authoritative corporate voice
+                input=ai_reply
+            )
+            st.audio(audio_response.content, format="audio/mp3", autoplay=True)
+            st.rerun()
+
+    # --- END INTERVIEW SCORECARD ---
+    st.write("---")
+    if st.button("End Interview & Generate Final Score"):
+        st.session_state.interview_active = False
+        with st.spinner("Generating Final Verdict..."):
+            st.session_state.messages.append({
+                "role": "user", 
+                "content": "The interview is now over. Please provide a final, brutal but constructive grading scorecard out of 100 based on my performance, with 3 bullet points on what I must fix before my real interview."
+            })
+            
+            final_response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=st.session_state.messages
+            )
+            scorecard = final_response.choices[0].message.content
+            st.session_state.messages.append({"role": "assistant", "content": scorecard})
+            
+            with st.chat_message("assistant"):
+                st.write(scorecard)
