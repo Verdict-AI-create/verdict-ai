@@ -68,15 +68,24 @@ if st.session_state.interview_active:
     # 2. Text Input (Fallback)
     user_text = st.chat_input("Or type your answer here...")
 
-    # Process Input (Audio or Text)
+        # Process Input (Audio or Text)
     input_text = None
-    if audio_bytes is not None:
+    
+    # Only process if there is audio AND it is not the exact same audio we just processed
+    if audio_bytes is not None and audio_bytes != st.session_state.last_audio:
+        st.session_state.last_audio = audio_bytes # Save it so we don't repeat it
+        
         # Convert speech to text
         transcript = client.audio.transcriptions.create(
             model="whisper-1", 
             file=("audio.wav", audio_bytes)
         )
-        input_text = transcript.text
+        
+        # The Hallucination Filter
+        if "MBC" in transcript.text or len(transcript.text) < 2:
+            st.warning("Mic didn't catch that cleanly. Please try speaking again.")
+        else:
+            input_text = transcript.text
 
     if user_text:
         input_text = user_text
