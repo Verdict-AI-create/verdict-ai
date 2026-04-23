@@ -5,7 +5,7 @@ import json
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Verdict AI", layout="wide")
 st.title("Verdict AI ⚖️")
-st.subheader("Executive Interview Simulator")
+st.subheader("Live Interview Room") # CHANGED: Immersive UX
 
 # --- SIDEBAR SETUP ---
 st.sidebar.header("Interview Setup")
@@ -36,8 +36,6 @@ for key, value in default_states.items():
 
 # --- HELPER FUNCTIONS ---
 def get_system_prompt():
-    """Optimized: Minified prompt that relies on state memory instead of long text."""
-    # Only send the 3 most recent weaknesses to prevent prompt bloat
     recent_weaknesses = ", ".join(st.session_state.weaknesses[-3:]) if st.session_state.weaknesses else "None"
     skills_str = ", ".join(st.session_state.key_skills) if st.session_state.key_skills else "General"
     
@@ -52,7 +50,7 @@ def get_system_prompt():
     RULES:
     1. No fluff. Challenge vague answers aggressively based on their flaws.
     2. KEEP SPOKEN RESPONSE CONCISE (Max 3 sentences) to ensure fast voice delivery.
-    3. First message: ONLY say "I'm Verdict", brief intro, and first question.
+    3. First message: Start with a natural, professional corporate greeting (e.g., "Good morning. I'm Verdict..."). Briefly acknowledge their background, then ask the first question. # CHANGED: Added greeting logic
     
     OUTPUT JSON FORMAT:
     {{
@@ -62,14 +60,9 @@ def get_system_prompt():
     """
 
 def fetch_ai_response(force_json=True, custom_messages=None):
-    """
-    Optimized: Implements a Sliding Window for token efficiency.
-    Only sends the System Prompt + the last 4 messages of the conversation.
-    """
     if custom_messages:
         messages_to_send = custom_messages
     else:
-        # TOKEN SAVER: Slice array to only include System [0] + last 4 context messages
         if len(st.session_state.messages) > 5:
             messages_to_send = [st.session_state.messages[0]] + st.session_state.messages[-4:]
         else:
@@ -155,12 +148,14 @@ for i, msg in enumerate(st.session_state.messages):
 # --- ACTIVE INTERVIEW LOOP ---
 if st.session_state.interview_active:
     
+    move_next = False
+
     # --- POST-FEEDBACK ACTIONS (COACH'S CORNER) ---
     if len(st.session_state.messages) >= 4:
         st.write("---")
         st.markdown("### 🛠️ Coach's Corner")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4) # CHANGED: 4 columns
         
         last_question = st.session_state.messages[-3]["content"] 
         last_answer = st.session_state.messages[-2]["content"]   
@@ -168,8 +163,8 @@ if st.session_state.interview_active:
         
         with col1:
             if st.button("🔄 Retry Answer", use_container_width=True):
-                st.session_state.messages.pop() # Pop AI response
-                st.session_state.messages.pop() # Pop User answer
+                st.session_state.messages.pop() 
+                st.session_state.messages.pop() 
                 
                 if st.session_state.evaluations:
                     popped_eval = st.session_state.evaluations.pop()
@@ -183,18 +178,23 @@ if st.session_state.interview_active:
         with col2:
             if st.button("✨ Show Ideal Answer", use_container_width=True):
                 with st.spinner("Drafting ideal answer..."):
-                    # One concise API call bypassing standard memory
-                    prompt = f"Question: '{last_question}'. Write a perfect, professional 3-sentence answer targeting: {', '.join(st.session_state.key_skills)}."
+                    # CHANGED: Enforcing plain English
+                    prompt = f"Question: '{last_question}'. Write a perfect, 3-sentence answer targeting: {', '.join(st.session_state.key_skills)}. CRITICAL: Use clear, simple, plain English suitable for standard Indian corporate professionals. Do not use overly advanced or flowery vocabulary."
                     result = fetch_ai_response(force_json=False, custom_messages=[{"role": "user", "content": prompt}])
                     st.session_state.action_result = f"**Ideal Answer:**\n\n{result}"
 
         with col3:
             if st.button("📈 Improve My Answer", use_container_width=True):
                 with st.spinner("Improving your answer..."):
-                    # One concise API call bypassing standard memory
-                    prompt = f"Question: '{last_question}'. \nAnswer: '{last_answer}'. \nIssues: '{last_eval.get('issues', 'None')}'. \nRewrite the candidate's answer professionally in 3 sentences, fixing the issues."
+                    # CHANGED: Fixing substance over just upgrading words
+                    prompt = f"Question: '{last_question}'. \nAnswer: '{last_answer}'. \nIssues: '{last_eval.get('issues', 'None')}'. \nRewrite the candidate's answer in 3 sentences to fix the issues. CRITICAL RULE: You must use clear, simple, plain English suitable for the Indian market. Do NOT use fancy or advanced vocabulary. Focus entirely on improving the structure (like adding STAR method details) and substance, not just upgrading the words."
                     result = fetch_ai_response(force_json=False, custom_messages=[{"role": "user", "content": prompt}])
                     st.session_state.action_result = f"**Improved Version of Your Answer:**\n\n{result}"
+
+        with col4:
+            # CHANGED: Next Question trigger
+            if st.button("⏭️ Next Question", use_container_width=True):
+                move_next = True
 
         if st.session_state.action_result:
             st.info(st.session_state.action_result)
@@ -207,7 +207,10 @@ if st.session_state.interview_active:
 
     input_text = None
     
-    if audio_bytes is not None and audio_bytes != st.session_state.last_audio:
+    if move_next:
+        input_text = "I have noted the feedback. Let's move on to the next question."
+    
+    if audio_bytes is not None and audio_bytes != st.session_state.last_audio and not move_next:
         st.session_state.last_audio = audio_bytes 
         with st.spinner("Transcribing audio..."):
             transcript = client.audio.transcriptions.create(
@@ -221,14 +224,20 @@ if st.session_state.interview_active:
         else:
             input_text = text
 
-    if user_text:
+    if user_text and not move_next:
         input_text = user_text
 
     if input_text:
         st.session_state.action_result = None 
         
-        with st.chat_message("user"):
-            st.write(input_text)
+        # CHANGED: Hide the auto-prompt text if they clicked "Next Question"
+        if move_next:
+            with st.chat_message("user"):
+                st.write("*(Moving to next question...)*")
+        else:
+            with st.chat_message("user"):
+                st.write(input_text)
+                
         st.session_state.messages.append({"role": "user", "content": input_text})
 
         with st.spinner("Verdict is evaluating..."):
@@ -262,13 +271,18 @@ if st.session_state.interview_active:
     if st.button("End Interview & Generate Final Score"):
         st.session_state.interview_active = False
         with st.spinner("Generating Final Verdict..."):
-            # Temporary message appended strictly for the final summary execution
-            st.session_state.messages.append({
+            
+            # CHANGED: Hidden message logic so the candidate never sees the raw instruction string
+            hidden_eval_message = {
                 "role": "user", 
                 "content": "The interview is over. Do not use JSON. Provide a concise, bolded markdown summary: 1. Overall Score. 2. Key Weaknesses Summary. 3. Final HIRE / NO HIRE signal with a 1-sentence justification."
-            })
+            }
             
-            scorecard = fetch_ai_response(force_json=False)
+            # Combine history + the hidden command
+            custom_eval_context = st.session_state.messages + [hidden_eval_message]
+            
+            scorecard = fetch_ai_response(force_json=False, custom_messages=custom_eval_context)
+            
             if scorecard:
                 st.session_state.messages.append({"role": "assistant", "content": scorecard})
             
